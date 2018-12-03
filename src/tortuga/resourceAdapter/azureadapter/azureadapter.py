@@ -238,11 +238,13 @@ class AzureAdapter(ResourceAdapter):
 
         start_time = datetime.datetime.utcnow()
 
+        nodes = []
         if dbSoftwareProfile is None or dbSoftwareProfile.isIdle:
             # Create idle nodes
-            nodes = self.__add_idle_nodes(
+            self.__add_idle_nodes(
                 addNodesRequest, dbSession, dbHardwareProfile,
-                dbSoftwareProfile)
+                dbSoftwareProfile
+            )
         else:
             nodes = self.__add_active_nodes(
                 addNodesRequest, dbSession, dbHardwareProfile,
@@ -890,6 +892,10 @@ dns_nameservers = %(dns_nameservers)s
         node.nics.append(
             Nic(ip=nic.ip_configurations[0].private_ip_address, boot=True))
 
+        # Associate public FQDN with node
+        if session.config['allocate_public_ip']:
+            node.public_hostname = nic.ip_configurations[0].public_ip_address.dns_settings.fqdn
+
         # ...and commit to database
         db_session.commit()
 
@@ -1074,10 +1080,15 @@ dns_nameservers = %(dns_nameservers)s
             public_ip_address_creation = \
                 session.network_client.public_ip_addresses.create_or_update(
                     session.config['resource_group'],
-                    '%s-ip-config' % (vm_name), {
+                    '{}-ip-config'.format(vm_name),
+                    {
                         'location': session.config['location'],
                         'public_ip_address_version': 'IPv4',
-                    })
+                        'dns_settings': {
+                            'domain_name_label': vm_name
+                        }
+                    }
+                )
 
             public_ip_address = self.__wait_for_async_request(
                 public_ip_address_creation, 'create_public_ip',
@@ -1088,7 +1099,7 @@ dns_nameservers = %(dns_nameservers)s
 
         async_nic_creation = \
             session.network_client.network_interfaces.create_or_update(
-                session.config['resource_group'], '%s-nic' % (vm_name), {
+                session.config['resource_group'], '{}-nic'.format(vm_name), {
                     'location': session.config['location'],
                     'network_security_group': {
                         'id': network_security_group.id,
